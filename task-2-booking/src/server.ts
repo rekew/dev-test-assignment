@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { now } from './clock.ts';
 import { normalizePhone } from './phone.ts';
 import { getSlots } from './slots.ts';
 import { bookingRepo, masters, services } from './store.ts';
@@ -44,6 +45,11 @@ export const server = createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/bookings') {
       return handleCreateBooking(req, res);
+    }
+
+    const cancel = url.pathname.match(/^\/bookings\/([^/]+)$/);
+    if (req.method === 'DELETE' && cancel) {
+      return handleCancelBooking(res, decodeURIComponent(cancel[1]));
     }
 
     send(res, 404, { error: 'not_found' });
@@ -125,6 +131,20 @@ async function handleCreateBooking(req: IncomingMessage, res: ServerResponse) {
 
   if (!result) return send(res, 409, { error: 'slot_unavailable' });
   send(res, 201, result);
+}
+
+async function handleCancelBooking(res: ServerResponse, id: string) {
+  const booking = await bookingRepo.get(id);
+  if (!booking) return send(res, 404, { error: 'not_found' });
+
+  // Повторная отмена — не ошибка, даже если до начала меньше двух часов.
+  if (booking.status === 'cancelled') return send(res, 200, booking);
+
+  const msUntilStart = Date.parse(booking.start) - now().getTime();
+  if (msUntilStart < 2 * 60 * 60 * 1000) return send(res, 409, { error: 'too_late' });
+
+  await bookingRepo.update(id, { status: 'cancelled' });
+  send(res, 200, { ...booking, status: 'cancelled' });
 }
 
 // ISO-строка с часовым поясом -> местные (Алматы) дата и 'HH:mm'.
