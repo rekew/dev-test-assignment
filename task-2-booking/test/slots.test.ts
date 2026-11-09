@@ -1,3 +1,4 @@
+// @rev kc-31
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { getSlots } from '../src/slots.ts';
@@ -83,6 +84,17 @@ test('getSlots: после записи 7 минут на уборку не вы
   const slots = getSlots(master, short, monday, [booking('10:00', '10:30')]);
   assert.ok(!slots.includes('10:30'));
   assert.ok(slots.includes('10:45'));
+});
+
+test('getSlots: услуга должна помещаться до конца рабочего дня', () => {
+  const shortDay = withDay({ to: '11:30' });
+  assert.deepEqual(getSlots(shortDay, cut, monday, []), ['10:00', '10:15', '10:30']);
+});
+
+test('getSlots: отменённая запись не создаёт буфер уборки', () => {
+  const short: Service = { id: 's-30', name: 'Короткая', durationMin: 30, masterIds: ['m-1'] };
+  const slots = getSlots(master, short, monday, [booking('10:00', '10:30', 'cancelled')]);
+  assert.ok(slots.includes('10:30'));
 });
 
 test('getSlots: прошедшее время не выдаётся', async () => {

@@ -225,6 +225,43 @@ test('DELETE bookings: нет такой записи — 404', async () => {
   assert.equal(res.status, 404);
 });
 
+test('POST bookings: принимает start с любым часовым поясом', async () => {
+  await withNow('2030-11-20T00:00:00.000Z', async () => {
+    // +03:00 → 10:00 UTC → 15:00 по Алматы
+    const res = await postBooking({
+      masterId: 'm-1',
+      serviceId: 's-brows',
+      start: '2030-11-22T13:00:00+03:00',
+      clientPhone: '87012345678',
+    });
+    assert.equal(res.status, 201);
+
+    const body = await res.json();
+    assert.equal(body.start, '2030-11-22T10:00:00.000Z');
+    assert.equal(body.end, '2030-11-22T10:30:00.000Z');
+  });
+});
+
+test('POST bookings: после записи 7 минут на уборку слот недоступен', async () => {
+  await withNow('2030-11-20T00:00:00.000Z', async () => {
+    const request = {
+      masterId: 'm-1',
+      serviceId: 's-brows',
+      start: '2030-11-21T15:00:00+05:00',
+      clientPhone: '87012345678',
+    };
+
+    assert.equal((await postBooking(request)).status, 201);
+
+    const buffered = await postBooking({ ...request, start: '2030-11-21T15:30:00+05:00' });
+    assert.equal(buffered.status, 409);
+    assert.deepEqual(await buffered.json(), { error: 'slot_unavailable' });
+
+    const free = await postBooking({ ...request, start: '2030-11-21T15:45:00+05:00' });
+    assert.equal(free.status, 201);
+  });
+});
+
 test('POST bookings: одновременная бронь одного слота создаёт одну запись', async () => {
   await withNow('2030-11-17T00:00:00.000Z', async () => {
     const request = {
