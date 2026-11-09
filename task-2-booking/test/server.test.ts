@@ -153,6 +153,78 @@ test('POST bookings: время не из свободных слотов — 40
   });
 });
 
+const deleteBooking = (id: string) => fetch(`${base}/bookings/${id}`, { method: 'DELETE' });
+
+test('DELETE bookings: отменяет запись, повторная отмена — 200', async () => {
+  await withNow('2030-11-17T00:00:00.000Z', async () => {
+    const created = await (
+      await postBooking({
+        masterId: 'm-1',
+        serviceId: 's-cut',
+        start: '2030-11-18T16:00:00+05:00',
+        clientPhone: '87012345678',
+      })
+    ).json();
+
+    const first = await deleteBooking(created.id);
+    assert.equal(first.status, 200);
+    assert.equal((await first.json()).status, 'cancelled');
+
+    const second = await deleteBooking(created.id);
+    assert.equal(second.status, 200);
+    assert.equal((await second.json()).status, 'cancelled');
+  });
+});
+
+test('DELETE bookings: меньше чем за 2 часа — 409 too_late', async () => {
+  let id = '';
+  await withNow('2030-11-17T00:00:00.000Z', async () => {
+    const created = await (
+      await postBooking({
+        masterId: 'm-1',
+        serviceId: 's-cut',
+        start: '2030-11-19T10:00:00+05:00',
+        clientPhone: '87012345678',
+      })
+    ).json();
+    id = created.id;
+  });
+
+  // 09:00 по Алматы, до начала 1 час
+  await withNow('2030-11-19T04:00:00.000Z', async () => {
+    const res = await deleteBooking(id);
+    assert.equal(res.status, 409);
+    assert.deepEqual(await res.json(), { error: 'too_late' });
+  });
+});
+
+test('DELETE bookings: ровно за 2 часа отменить можно', async () => {
+  let id = '';
+  await withNow('2030-11-17T00:00:00.000Z', async () => {
+    const created = await (
+      await postBooking({
+        masterId: 'm-1',
+        serviceId: 's-cut',
+        start: '2030-11-19T11:30:00+05:00',
+        clientPhone: '87012345678',
+      })
+    ).json();
+    id = created.id;
+  });
+
+  // 09:30 по Алматы, до начала ровно 2 часа
+  await withNow('2030-11-19T04:30:00.000Z', async () => {
+    const res = await deleteBooking(id);
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).status, 'cancelled');
+  });
+});
+
+test('DELETE bookings: нет такой записи — 404', async () => {
+  const res = await deleteBooking('bk-missing');
+  assert.equal(res.status, 404);
+});
+
 test('POST bookings: одновременная бронь одного слота создаёт одну запись', async () => {
   await withNow('2030-11-17T00:00:00.000Z', async () => {
     const request = {
